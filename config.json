@@ -1,0 +1,8 @@
+{
+    "Configs": "./",
+    "Txt": "./txt",
+    "JSON": "./json",
+    "Lua": "./lua",
+    "FieldLine": 1,
+    "DataLine": 2
+}
