@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/360EntSecGroup-Skylar/excelize"
 	"io/ioutil"
 	"os"
 	"path"
@@ -11,8 +12,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/360EntSecGroup-Skylar/excelize"
 )
 
 type config struct {
@@ -28,7 +27,7 @@ var (
 	ch         = make(chan string)
 	fileCount  int
 	configJSON config
-	fileList   = make([]string, 0)
+	fileList   = make([]interface{}, 0)
 )
 
 func main() {
@@ -77,22 +76,19 @@ func main() {
 			writeFileList()
 			break
 		}
-		// inputReader := bufio.NewReader(os.Stdin)
-		// input, err := inputReader.ReadString('\n')
-		// if err == nil {
-		// 	fmt.Printf("The input was: %s\n", input)
-		// 	break
-		// }
 	}
 }
 
 //写文件列表
 func writeFileList() {
-	m := make(map[string]interface{})
+	m := make(map[string]interface{}, 1)
 
-	sort.Strings([]string(fileList))
-
-	m["fileList"] = fileList
+	sortList := make([]string, len(fileList))
+	for i, v := range fileList {
+		sortList[i] = v.(string)
+	}
+	sort.Strings(sortList)
+	m["fileList"] = sortList
 
 	if configJSON.Txt != "" {
 		writeJSON(configJSON.Txt, "fileList", m)
@@ -208,7 +204,7 @@ func readXlsx(path string, fileName string) {
 	// // Get all the rows in the Sheet1.
 
 	SheetName := xlsx.GetSheetName(1)
-	rows := xlsx.GetRows(SheetName)
+	var rows, _ = xlsx.GetRows(SheetName)
 	fields := rows[configJSON.FieldLine] //字段key
 	lineNum := 0                         //行数
 	dataDict := make(map[string]interface{})
@@ -254,12 +250,15 @@ func readXlsx(path string, fileName string) {
 		if checkRowValid(row) == false {
 			continue
 		}
+
+		if strings.HasPrefix(row[0], "#") { //#号跳过
+			continue
+		}
+
 		row = setFieldDefault(fileName, rowN, row, fieldCount) //设置字段默认值
 
 		for _, value := range row {
-			// if strings.HasPrefix(row[0], "#") { //#号跳过
-			// 	break
-			// }
+
 			if file != nil { //存在
 				file.WriteString(value + "\t")
 			}
@@ -337,11 +336,11 @@ func writeLuaTable(path string, fileName string, dataDict interface{}) {
 
 	defer file.Close()
 	file.WriteString("return ")
-	wrtieLuaTableContent(file, dataDict, 0)
+	writeLuaTableContent(file, dataDict, 0)
 }
 
 //写Lua表内容
-func wrtieLuaTableContent(fileHandle *os.File, data interface{}, idx int) {
+func writeLuaTableContent(fileHandle *os.File, data interface{}, idx int) {
 	switch t := data.(type) {
 	case float64:
 		fileHandle.WriteString(fmt.Sprintf("%v", data)) //对于interface{}, %v会打印实际类型的值
@@ -352,21 +351,30 @@ func wrtieLuaTableContent(fileHandle *os.File, data interface{}, idx int) {
 		a := data.([]interface{})
 		for _, v := range a {
 			addTabs(fileHandle, idx)
-			wrtieLuaTableContent(fileHandle, v, idx+1)
+			writeLuaTableContent(fileHandle, v, idx+1)
 			fileHandle.WriteString(",\n")
 		}
 		addTabs(fileHandle, idx-1)
 		fileHandle.WriteString("}")
-
+	case []string:
+		fileHandle.WriteString("{\n")
+		a := data.([]string)
+		for _, v := range a {
+			addTabs(fileHandle, idx)
+			writeLuaTableContent(fileHandle, v, idx+1)
+			fileHandle.WriteString(",\n")
+		}
+		addTabs(fileHandle, idx-1)
+		fileHandle.WriteString("}")
 	case map[string]interface{}:
 		m := data.(map[string]interface{})
 		fileHandle.WriteString("{\n")
 		for k, v := range m {
 			addTabs(fileHandle, idx)
 			fileHandle.WriteString("[")
-			wrtieLuaTableContent(fileHandle, k, idx+1)
+			writeLuaTableContent(fileHandle, k, idx+1)
 			fileHandle.WriteString("] = ")
-			wrtieLuaTableContent(fileHandle, v, idx+1)
+			writeLuaTableContent(fileHandle, v, idx+1)
 			fileHandle.WriteString(",\n")
 		}
 		addTabs(fileHandle, idx-1)
