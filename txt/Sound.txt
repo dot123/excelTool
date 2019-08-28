@@ -1,3 +1,0 @@
-音乐标示	路径	说明	
-SoundName	SoundPath	Text	
-click	sound/ui/click	点击音效	

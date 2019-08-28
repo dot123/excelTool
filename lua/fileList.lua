@@ -1,5 +1,5 @@
 return {
 ["fileList"] = {
-	"Sound",
+	"Demo",
 },
 }
