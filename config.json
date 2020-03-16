@@ -4,5 +4,8 @@
     "JSON": "./json",
     "Lua": "./lua",
     "FieldLine": 1,
-    "DataLine": 2
+    "DataLine": 3,
+	"Comma" :"\t",
+    "Comment": "#",
+    "Linefeed": "\n"
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,8 +20,11 @@ type config struct {
 	Txt       string
 	JSON      string
 	Lua       string
-	FieldLine int //字段key开始行
-	DataLine  int //有效配置开始行
+	FieldLine int    //字段key开始行
+	DataLine  int    //有效配置开始行
+	Comma     string //txt分隔符,默认是制表符
+	Comment   string //excel注释符
+	Linefeed  string //txt换行符
 }
 
 var (
@@ -179,19 +183,6 @@ func checkRowValid(rows []string) bool {
 func readXlsx(path string, fileName string) {
 	fmt.Println("正在解析：" + path)
 
-	var file *os.File
-
-	if configJSON.Txt != "" {
-		_file, fileErr := os.OpenFile(configJSON.Txt+"/"+fileName+".txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666) //不存在创建清空内容覆写
-
-		if fileErr != nil {
-			fmt.Println("open file failed.", fileErr.Error())
-			return
-		}
-		file = _file
-		defer _file.Close() //关闭文件
-	}
-
 	//打开excel
 	xlsx, err := excelize.OpenFile(path)
 	if err != nil {
@@ -203,8 +194,11 @@ func readXlsx(path string, fileName string) {
 	// fmt.Println(cell)
 	// // Get all the rows in the Sheet1.
 
+	var buffer bytes.Buffer
+
 	SheetName := xlsx.GetSheetName(1)
-	var rows, _ = xlsx.GetRows(SheetName)
+	var rows = xlsx.GetRows(SheetName)
+
 	fields := rows[configJSON.FieldLine] //字段key
 	lineNum := 0                         //行数
 	dataDict := make(map[string]interface{})
@@ -217,57 +211,48 @@ func readXlsx(path string, fileName string) {
 	}
 
 	fieldCount := len(fields)
+	totalLineNum := len(rows)
 
 	for rowN, row := range rows {
 		lineData := make(map[string]interface{}) //一行数据
 		fieldNum := 0
 
-		//第几个字段
-		if lineNum < configJSON.DataLine {
-			lineNum++
-			if file == nil { //不存在
-				continue
-			}
-
-			if checkRowValid(row) == false {
-				continue
-			}
-			row = setFieldDefault(fileName, rowN, row, fieldCount) //设置字段默认值
-
-			for _, value := range row { //txt所有都要写
-				// if strings.HasPrefix(row[0], "#") { //#号跳过
-				// 	break
-				// }
-
-				file.WriteString(value + "\t")
-			}
-			file.WriteString("\r\n")
+		if strings.HasPrefix(row[0], configJSON.Comment) { //注释符跳过
 			continue
 		}
-
-		lineNum++
 
 		if checkRowValid(row) == false {
 			continue
 		}
 
-		if strings.HasPrefix(row[0], "#") { //#号跳过
+		row = setFieldDefault(fileName, rowN, row, fieldCount) //设置字段默认值
+
+		lineNum++
+		//第几个字段
+		if lineNum < configJSON.DataLine {
+			for _, value := range row { //txt所有都要写
+				fieldNum++
+				buffer.WriteString(value)
+				if fieldNum < fieldCount {
+					buffer.WriteString(configJSON.Comma)
+				}
+			}
+			buffer.WriteString(configJSON.Linefeed)
 			continue
 		}
 
-		row = setFieldDefault(fileName, rowN, row, fieldCount) //设置字段默认值
-
 		for _, value := range row {
-
-			if file != nil { //存在
-				file.WriteString(value + "\t")
+			key := fields[fieldNum]
+			fieldNum++
+			buffer.WriteString(value)
+			if fieldNum < fieldCount {
+				buffer.WriteString(configJSON.Comma)
 			}
 
 			var m map[string]interface{}
 			err = json.Unmarshal([]byte(value), &m) //尝试转换成map
 			if err == nil {
-				lineData[fields[fieldNum]] = m
-				fieldNum++
+				lineData[key] = m
 				continue
 			}
 
@@ -275,21 +260,25 @@ func readXlsx(path string, fileName string) {
 			err = json.Unmarshal([]byte(value), &arr) //尝试转换成数组
 
 			if err == nil {
-				lineData[fields[fieldNum]] = arr
+				lineData[key] = arr
 			} else {
 				f, err := strconv.ParseFloat(value, 64) //尝试转换为float64
 				if err == nil {
-					lineData[fields[fieldNum]] = f
+					lineData[key] = f
 				} else {
-					lineData[fields[fieldNum]] = value
+					lineData[key] = value
 				}
 			}
-			fieldNum++
 		}
 		dataDict[row[0]] = lineData //第一个字段作为索引
-		if file != nil {            //存在
-			file.WriteString("\r\n")
+
+		if lineNum < totalLineNum {
+			buffer.WriteString(configJSON.Linefeed)
 		}
+	}
+
+	if configJSON.Txt != "" {
+		writeTxt(configJSON.Txt, fileName, &buffer) //写txt文件
 	}
 
 	if configJSON.JSON != "" {
@@ -311,6 +300,18 @@ func map2Str(dataDict map[string]interface{}) string {
 		return ""
 	}
 	return string(mjson)
+}
+
+//写txt文件
+func writeTxt(path string, fileName string, buffer *bytes.Buffer) {
+	file, err := os.OpenFile(configJSON.Txt+"/"+fileName+".txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666) //不存在创建清空内容覆写
+
+	if err != nil {
+		fmt.Println("open file failed.", err.Error())
+		return
+	}
+	defer file.Close()
+	file.Write(buffer.Bytes())
 }
 
 //写JSON文件

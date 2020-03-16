@@ -1,5 +1,6 @@
 return {
 ["1000"] = {
+	["id"] = 1000,
 	["TestString"] = "Hello,World",
 	["TestNum"] = 1.99,
 	["TestList"] = {
@@ -7,6 +8,5 @@ return {
 		2,
 		3,
 	},
-	["id"] = 1000,
 },
 }
