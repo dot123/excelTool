@@ -2,12 +2,29 @@
 
 1.excel导表工具支持导出txt、lua、json文件。
 
-2.参考Demo.xlsx自动转换字段类型[1,2,3]则导出对应文件格式的数组、数字导出数字、字符串导出字符串。
+2.支持格式参考测试例子.xlsx。
 
 3.开头#号注释。
 
 4.config.json可以配置导出路径如不填则不导出该文件。
 
 5.fileList方便读取所有导出的文件。
+
+6.配置说明
+
+```
+type config struct {
+   Configs      string
+   Txt          string
+   JSON         string
+   Lua          string
+   FieldLine    int    //字段key开始行
+   DataLine     int    //有效配置开始行
+   Comma        string //txt分隔符,默认是制表符
+   Comment      string //excel注释符
+   Linefeed     string //txt换行符
+   UseSheetName bool   //使用工作表名为文件输出名
+}
+```
 
 #### 项目代码https://github.com/dot123/excelTool.git

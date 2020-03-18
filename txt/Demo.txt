@@ -1,3 +1,0 @@
-id	测试字符串	测试数字	测试数组
-id	TestString	TestNum	TestList
-1000	Hello,World	1.99	[1,2,3]

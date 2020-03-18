@@ -5,7 +5,8 @@
     "Lua": "./lua",
     "FieldLine": 1,
     "DataLine": 3,
-	"Comma" :"\t",
+    "Comma": "\t",
     "Comment": "#",
-    "Linefeed": "\n"
+    "Linefeed": "\n",
+    "UseSheetName": true
 }

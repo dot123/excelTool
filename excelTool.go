@@ -13,18 +13,20 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type config struct {
-	Configs   string
-	Txt       string
-	JSON      string
-	Lua       string
-	FieldLine int    //字段key开始行
-	DataLine  int    //有效配置开始行
-	Comma     string //txt分隔符,默认是制表符
-	Comment   string //excel注释符
-	Linefeed  string //txt换行符
+	Configs      string
+	Txt          string
+	JSON         string
+	Lua          string
+	FieldLine    int    //字段key开始行
+	DataLine     int    //有效配置开始行
+	Comma        string //txt分隔符,默认是制表符
+	Comment      string //excel注释符
+	Linefeed     string //txt换行符
+	UseSheetName bool   //使用工作表名为文件输出名
 }
 
 var (
@@ -35,6 +37,8 @@ var (
 )
 
 func main() {
+	startTime := time.Now().UnixNano()
+
 	c := flag.String("C", "./config.json", "配置文件路径")
 	flag.Parse()
 
@@ -81,6 +85,10 @@ func main() {
 			break
 		}
 	}
+
+	endTime := time.Now().UnixNano()
+	fmt.Printf("总耗时:%v毫秒\n", (endTime-startTime)/1000000)
+	time.Sleep(time.Millisecond * 3000)
 }
 
 //写文件列表
@@ -196,11 +204,15 @@ func readXlsx(path string, fileName string) {
 
 	var buffer bytes.Buffer
 
-	SheetName := xlsx.GetSheetName(1)
-	var rows = xlsx.GetRows(SheetName)
+	sheetName := xlsx.GetSheetName(1)
+	var lines = xlsx.GetRows(sheetName)
 
-	fields := rows[configJSON.FieldLine] //字段key
-	lineNum := 0                         //行数
+	if configJSON.UseSheetName {
+		fileName = sheetName
+	}
+
+	fields := lines[configJSON.FieldLine] //字段key
+	lineNum := 0                          //行数
 	dataDict := make(map[string]interface{})
 
 	for i, field := range fields {
@@ -211,26 +223,26 @@ func readXlsx(path string, fileName string) {
 	}
 
 	fieldCount := len(fields)
-	totalLineNum := len(rows)
+	totalLineNum := len(lines)
 
-	for rowN, row := range rows {
+	for n, line := range lines {
 		lineData := make(map[string]interface{}) //一行数据
 		fieldNum := 0
 
-		if strings.HasPrefix(row[0], configJSON.Comment) { //注释符跳过
+		if strings.HasPrefix(line[0], configJSON.Comment) { //注释符跳过
 			continue
 		}
 
-		if checkRowValid(row) == false {
+		if checkRowValid(line) == false {
 			continue
 		}
 
-		row = setFieldDefault(fileName, rowN, row, fieldCount) //设置字段默认值
+		line = setFieldDefault(fileName, n, line, fieldCount) //设置字段默认值
 
 		lineNum++
 		//第几个字段
 		if lineNum < configJSON.DataLine {
-			for _, value := range row { //txt所有都要写
+			for _, value := range line { //txt所有都要写
 				fieldNum++
 				buffer.WriteString(value)
 				if fieldNum < fieldCount {
@@ -241,7 +253,7 @@ func readXlsx(path string, fileName string) {
 			continue
 		}
 
-		for _, value := range row {
+		for _, value := range line {
 			key := fields[fieldNum]
 			fieldNum++
 			buffer.WriteString(value)
@@ -270,7 +282,7 @@ func readXlsx(path string, fileName string) {
 				}
 			}
 		}
-		dataDict[row[0]] = lineData //第一个字段作为索引
+		dataDict[line[0]] = lineData //第一个字段作为索引
 
 		if lineNum < totalLineNum {
 			buffer.WriteString(configJSON.Linefeed)
