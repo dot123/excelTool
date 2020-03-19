@@ -3,7 +3,7 @@
     "Txt": "./txt",
     "JSON": "./json",
     "Lua": "./lua",
-    "FieldLine": 1,
+    "FieldLine": 2,
     "DataLine": 3,
     "Comma": "\t",
     "Comment": "#",

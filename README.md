@@ -13,17 +13,17 @@
 6.配置说明
 
 ```
-type config struct {
-   Configs      string
-   Txt          string
-   JSON         string
-   Lua          string
-   FieldLine    int    //字段key开始行
-   DataLine     int    //有效配置开始行
-   Comma        string //txt分隔符,默认是制表符
-   Comment      string //excel注释符
-   Linefeed     string //txt换行符
-   UseSheetName bool   //使用工作表名为文件输出名
+type Config struct {
+	Configs      string
+	Txt          string
+	JSON         string
+	Lua          string
+	FieldLine    int    //字段key开始行
+	DataLine     int    //有效配置开始行
+	Comma        string //txt分隔符,默认是制表符
+	Comment      string //excel注释符
+	Linefeed     string //txt换行符
+	UseSheetName bool   //使用工作表名为文件输出名
 }
 ```
 
