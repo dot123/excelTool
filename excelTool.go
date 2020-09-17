@@ -76,11 +76,10 @@ func main() {
 	filepath.Walk(config.Configs, walkFunc)
 	count := 0
 	for {
-		fileName, open := <-ch
+		_, open := <-ch
 		if !open {
 			break
 		}
-		log.Infof("已完成解析：%s\n", fileName+".xlsx")
 		count++
 		if count == fileCount {
 			writeFileList()
@@ -166,12 +165,11 @@ func walkFunc(files string, info os.FileInfo, err error) error {
 
 //读取xlsx
 func readXlsx(path string, fileName string) {
-	log.Infof("正在解析：" + path)
-
 	//打开excel
 	xlsx, err := excelize.OpenFile(path)
 	if err != nil {
-		log.Errorln(err)
+		log.Errorf("%s %s",fileName, err)
+		ch <- fileName
 		return
 	}
 	// // Get value from cell by given worksheet name and axis.
