@@ -76,10 +76,15 @@ func main() {
 	filepath.Walk(config.Configs, walkFunc)
 	count := 0
 	for {
-		_, open := <-ch
+		sheetName, open := <-ch
 		if !open {
 			break
 		}
+
+		if sheetName != "" {
+			fileList = append(fileList, sheetName) //添加到文件列表
+		}
+
 		count++
 		if count == fileCount {
 			writeFileList()
@@ -156,7 +161,7 @@ func walkFunc(files string, info os.FileInfo, err error) error {
 	// fmt.Println(paths, fileName)      //获取路径中的目录及文件名
 	// fmt.Println(filepath.Base(files)) //获取路径中的文件名
 	// fmt.Println(path.Ext(files))      //获取路径中的文件的后缀
-	if path.Ext(files) == ".xlsx" && !strings.HasPrefix(fileName, "~$") {
+	if path.Ext(files) == ".xlsx" && !strings.HasPrefix(fileName, "~$") && !strings.HasPrefix(fileName, "#") {
 		fileCount++
 		go readXlsx(files, strings.Replace(fileName, ".xlsx", "", -1))
 	}
@@ -168,8 +173,8 @@ func readXlsx(path string, fileName string) {
 	//打开excel
 	xlsx, err := excelize.OpenFile(path)
 	if err != nil {
-		log.Errorf("%s %s",fileName, err)
-		ch <- fileName
+		log.Errorf("%s %s", fileName, err)
+		ch <- ""
 		return
 	}
 	// // Get value from cell by given worksheet name and axis.
@@ -278,9 +283,7 @@ func readXlsx(path string, fileName string) {
 		writeLuaTable(config.Lua, sheetName, dataDict) //写Lua文件
 	}
 
-	fileList = append(fileList, sheetName) //添加到文件列表
-
-	ch <- fileName
+	ch <- sheetName
 }
 
 //字典转字符串

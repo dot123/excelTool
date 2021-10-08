@@ -1,17 +1,5 @@
 return {
 ["1"] = {
-	["IndexStr"] = "one",
-	["St"] = {
-		["name"] = "dot123",
-		["num"] = 1,
-	},
-	["M"] = {
-		["key1"] = 1,
-		["key2"] = 2,
-	},
-	["IndexInt"] = 1,
-	["_Number"] = 0,
-	["string"] = "January",
 	["Arr1"] = {
 		1,
 		2,
@@ -30,14 +18,40 @@ return {
 			3,
 		},
 	},
+	["IndexStr"] = "one",
+	["_Number"] = 0,
+	["string"] = "January",
 	["Arr3"] = {
 		1,
 		2,
 		3,
 	},
+	["St"] = {
+		["name"] = "dot123",
+		["num"] = 1,
+	},
+	["M"] = {
+		["key1"] = 1,
+		["key2"] = 2,
+	},
+	["IndexInt"] = 1,
 },
 ["3"] = {
+	["IndexInt"] = 3,
+	["IndexStr"] = "three",
+	["Arr3"] = {
+		6,
+	},
+	["St"] = {
+		["name"] = "dot123",
+		["num"] = 3,
+	},
 	["_Number"] = 2,
+	["string"] = "March",
+	["Arr1"] = {
+		5,
+		6,
+	},
 	["Arr2"] = {
 		{
 			2,
@@ -52,23 +66,9 @@ return {
 			5,
 		},
 	},
-	["St"] = {
-		["name"] = "dot123",
-		["num"] = 3,
-	},
-	["IndexInt"] = 3,
-	["string"] = "March",
-	["Arr1"] = {
-		5,
-		6,
-	},
-	["Arr3"] = {
-		6,
-	},
 	["M"] = {
-		["key5"] = 5,
 		["key6"] = 6,
+		["key5"] = 5,
 	},
-	["IndexStr"] = "three",
 },
 }
