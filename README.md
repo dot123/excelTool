@@ -11,6 +11,8 @@
 
 5.fileList方便读取所有导出的文件。
 
+6.支持数据类型有int、 float、 string、 auto。
+
 6.配置说明
 
 ```
@@ -21,6 +23,7 @@ type Config struct {
 	Lua          string
 	FieldLine    int    //字段key开始行
 	DataLine     int    //有效配置开始行
+	TypeLine     int    //类型配置开始行
 	Comma        string //txt分隔符,默认是制表符
 	Comment      string //excel注释符
 	Linefeed     string //txt换行符

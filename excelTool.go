@@ -24,6 +24,7 @@ type Config struct {
 	Lua          string
 	FieldLine    int    //字段key开始行
 	DataLine     int    //有效配置开始行
+	TypeLine     int    //类型配置开始行
 	Comma        string //txt分隔符,默认是制表符
 	Comment      string //excel注释符
 	Linefeed     string //txt换行符
@@ -82,7 +83,7 @@ func main() {
 		}
 
 		if sheetName != "" {
-			fileList = append(fileList, sheetName) //添加到文件列表
+			fileList = append(fileList, sheetName)
 		}
 
 		count++
@@ -99,25 +100,25 @@ func main() {
 
 //写文件列表
 func writeFileList() {
-	m := make(map[string]interface{}, 1)
+	data := make(map[string]interface{}, 1)
 
 	sortList := make([]string, len(fileList))
 	for i, v := range fileList {
 		sortList[i] = v.(string)
 	}
 	sort.Strings(sortList)
-	m["fileList"] = sortList
+	data["fileList"] = sortList
 
 	if config.Txt != "" {
-		writeJSON(config.Txt, "fileList", m)
+		writeJSON(config.Txt, "fileList", data)
 	}
 
 	if config.JSON != "" {
-		writeJSON(config.JSON, "fileList", m)
+		writeJSON(config.JSON, "fileList", data)
 	}
 
 	if config.Lua != "" {
-		writeLuaTable(config.Lua, "fileList", m)
+		writeLuaTable(config.Lua, "fileList", data)
 	}
 }
 
@@ -129,11 +130,7 @@ func createDir(dir string) error {
 		return err
 	}
 
-	if exist {
-		log.Infof("has dir![%v]\n", dir)
-	} else {
-		log.Infof("no dir![%v]\n", dir)
-		//创建文件夹
+	if !exist {
 		err := os.MkdirAll(dir, os.ModePerm)
 		if err != nil {
 			log.Fatalf("mkdir failed![%v]\n", err)
@@ -158,18 +155,15 @@ func pathExists(path string) (bool, error) {
 
 func walkFunc(files string, info os.FileInfo, err error) error {
 	_, fileName := filepath.Split(files)
-	// fmt.Println(paths, fileName)      //获取路径中的目录及文件名
-	// fmt.Println(filepath.Base(files)) //获取路径中的文件名
-	// fmt.Println(path.Ext(files))      //获取路径中的文件的后缀
 	if path.Ext(files) == ".xlsx" && !strings.HasPrefix(fileName, "~$") && !strings.HasPrefix(fileName, "#") {
 		fileCount++
-		go readXlsx(files, strings.Replace(fileName, ".xlsx", "", -1))
+		go parseXlsx(files, strings.Replace(fileName, ".xlsx", "", -1))
 	}
 	return nil
 }
 
-//读取xlsx
-func readXlsx(path string, fileName string) {
+//解析xlsx
+func parseXlsx(path string, fileName string) {
 	//打开excel
 	xlsx, err := excelize.OpenFile(path)
 	if err != nil {
@@ -177,20 +171,11 @@ func readXlsx(path string, fileName string) {
 		ch <- ""
 		return
 	}
-	// // Get value from cell by given worksheet name and axis.
-	// cell := xlsx.GetCellValue("Sheet1", "B2")
-	// fmt.Println(cell)
-	// // Get all the rows in the Sheet1.
-
-	var buffer bytes.Buffer
 
 	sheetName := xlsx.GetSheetName(1)
 	var lines = xlsx.GetRows(sheetName)
 
-	fields := lines[config.FieldLine-1] //字段key
-	lineNum := 0                        //行数
-	dataDict := make(map[string]interface{})
-
+	fields := lines[config.FieldLine-1]
 	for i, field := range fields {
 		if field == "" {
 			fields = append(fields[:i])
@@ -199,12 +184,18 @@ func readXlsx(path string, fileName string) {
 	}
 
 	fieldCount := len(fields)
+
+	types := lines[config.TypeLine-1]
+
+	var data []interface{}
+	data = append(data, fields)
+
+	var buffer bytes.Buffer
+
+	lineNum := 0
 	totalLineNum := len(lines)
-
 	for n, line := range lines {
-		data := make(map[string]interface{}) //一行数据
-		fieldNum := 0
-
+		line = line[0:fieldCount]
 		if strings.HasPrefix(line[0], config.Comment) { //注释符跳过
 			continue
 		}
@@ -213,58 +204,29 @@ func readXlsx(path string, fileName string) {
 			log.Errorf("%s.xlsx (row=%v,col=0) error: is '' \n", fileName, n+1)
 			continue
 		}
-		line = line[0:fieldCount]
 
-		lineNum++
-		//第几个字段
-		if lineNum < config.DataLine {
-			for _, value := range line { //txt所有都要写
-				fieldNum++
-				buffer.WriteString(value)
-				if fieldNum < fieldCount {
-					buffer.WriteString(config.Comma)
-				}
-			}
-			if lineNum < totalLineNum {
-				buffer.WriteString(config.Linefeed)
-			}
-			continue
-		}
-
+		fieldNum := 0
 		for _, value := range line {
-			key := fields[fieldNum]
 			fieldNum++
 			buffer.WriteString(value)
 			if fieldNum < fieldCount {
 				buffer.WriteString(config.Comma)
 			}
-
-			var m map[string]interface{}
-			err = json.Unmarshal([]byte(value), &m) //尝试转换成map
-			if err == nil {
-				data[key] = m
-				continue
-			}
-
-			var arr []interface{}
-			err = json.Unmarshal([]byte(value), &arr) //尝试转换成数组
-
-			if err == nil {
-				data[key] = arr
-			} else {
-				f, err := strconv.ParseFloat(value, 64) //尝试转换为float64
-				if err == nil {
-					data[key] = f
-				} else {
-					data[key] = value
-				}
-			}
 		}
-		dataDict[line[0]] = data //第一个字段作为索引
-
 		if lineNum < totalLineNum {
 			buffer.WriteString(config.Linefeed)
 		}
+
+		lineNum++
+		if lineNum < config.DataLine {
+			continue
+		}
+
+		var lineData []interface{}
+		for i, value := range line {
+			lineData = append(lineData, typeConvert(types[i], value))
+		}
+		data = append(data, lineData)
 	}
 
 	if !config.UseSheetName {
@@ -272,23 +234,64 @@ func readXlsx(path string, fileName string) {
 	}
 
 	if config.Txt != "" {
-		writeTxt(config.Txt, sheetName, &buffer) //写txt文件
+		writeTxt(config.Txt, sheetName, &buffer)
 	}
 
 	if config.JSON != "" {
-		writeJSON(config.JSON, sheetName, dataDict) //写JSON文件
+		writeJSON(config.JSON, sheetName, data)
 	}
 
 	if config.Lua != "" {
-		writeLuaTable(config.Lua, sheetName, dataDict) //写Lua文件
+		writeLuaTable(config.Lua, sheetName, data)
 	}
 
 	ch <- sheetName
 }
 
-//字典转字符串
-func map2Str(dataDict map[string]interface{}) string {
-	b, err := json.Marshal(dataDict)
+//类型转换
+func typeConvert(ty string, value string) interface{} {
+	switch ty {
+	case "int":
+		arrValue := strings.Split(value, ".")
+		i, err := strconv.ParseInt(arrValue[0], 10, 64)
+		if err == nil {
+			return i
+		}
+		return value
+	case "float":
+		f, err := strconv.ParseFloat(value, 64)
+		if err == nil {
+			return f
+		}
+		return value
+	case "string":
+		return value
+	case "auto":
+		var m map[string]interface{}
+		err := json.Unmarshal([]byte(value), &m)
+		if err == nil {
+			return m
+		}
+
+		var arr []interface{}
+		err = json.Unmarshal([]byte(value), &arr)
+
+		if err == nil {
+			return arr
+		} else {
+			f, err := strconv.ParseFloat(value, 64)
+			if err == nil {
+				return f
+			}
+		}
+	}
+
+	return value
+}
+
+//转字为符串
+func data2Str(data interface{}) string {
+	b, err := json.Marshal(data)
 	if err != nil {
 		log.Errorln(err)
 		return ""
@@ -298,7 +301,7 @@ func map2Str(dataDict map[string]interface{}) string {
 
 //写txt文件
 func writeTxt(path string, fileName string, buffer *bytes.Buffer) {
-	file, err := os.OpenFile(path+"/"+fileName+".txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666) //不存在创建清空内容覆写
+	file, err := os.OpenFile(path+"/"+fileName+".txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		log.Errorln("open file failed. ", err.Error())
 		return
@@ -308,21 +311,20 @@ func writeTxt(path string, fileName string, buffer *bytes.Buffer) {
 }
 
 //写JSON文件
-func writeJSON(path string, fileName string, dataDict map[string]interface{}) {
-	file, err := os.OpenFile(path+"/"+fileName+".json", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666) //不存在创建清空内容覆写
+func writeJSON(path string, fileName string, data interface{}) {
+	file, err := os.OpenFile(path+"/"+fileName+".json", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		log.Errorln("open file failed.", err.Error())
 		return
 	}
 
 	defer file.Close()
-	//字典转字符串
-	file.WriteString(map2Str(dataDict))
+	file.WriteString(data2Str(data))
 }
 
 //写Lua文件
-func writeLuaTable(path string, fileName string, dataDict interface{}) {
-	file, err := os.OpenFile(path+"/"+fileName+".lua", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666) //不存在创建清空内容覆写
+func writeLuaTable(path string, fileName string, data interface{}) {
+	file, err := os.OpenFile(path+"/"+fileName+".lua", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		log.Errorln("open file failed.", err.Error())
 		return
@@ -330,16 +332,18 @@ func writeLuaTable(path string, fileName string, dataDict interface{}) {
 
 	defer file.Close()
 	file.WriteString("return ")
-	writeLuaTableContent(file, dataDict, 0)
+	writeLuaTableContent(file, data, 0)
 }
 
 //写Lua表内容
 func writeLuaTableContent(file *os.File, data interface{}, idx int) {
 	switch t := data.(type) {
+	case int64:
+		file.WriteString(fmt.Sprintf("%d", data))
 	case float64:
-		file.WriteString(fmt.Sprintf("%v", data)) //对于interface{}, %v会打印实际类型的值
+		file.WriteString(fmt.Sprintf("%v", data))
 	case string:
-		file.WriteString(fmt.Sprintf(`"%v"`, data)) //对于interface{}, %v会打印实际类型的值
+		file.WriteString(fmt.Sprintf(`"%s"`, data))
 	case []interface{}:
 		file.WriteString("{\n")
 		a := data.([]interface{})
