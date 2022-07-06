@@ -1,5 +1,5 @@
 {
-    "Configs": "./",
+    "Root": "./",
     "Txt": "./txt",
     "JSON": "./json",
     "Lua": "./lua",

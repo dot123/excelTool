@@ -18,23 +18,23 @@ import (
 )
 
 type Config struct {
-	Configs      string
+	Root         string
 	Txt          string
 	JSON         string
 	Lua          string
-	FieldLine    int    //字段key开始行
-	DataLine     int    //有效配置开始行
-	TypeLine     int    //类型配置开始行
-	Comma        string //txt分隔符,默认是制表符
-	Comment      string //excel注释符
-	Linefeed     string //txt换行符
-	UseSheetName bool   //使用工作表名为文件输出名
+	FieldLine    int    // 字段key开始行
+	DataLine     int    // 有效配置开始行
+	TypeLine     int    // 类型配置开始行
+	Comma        string // txt分隔符,默认是制表符
+	Comment      string // excel注释符
+	Linefeed     string // txt换行符
+	UseSheetName bool   // 使用工作表名为文件输出名
 }
 
 var (
 	ch        = make(chan string)
-	fileCount int
-	config    Config
+	fileCount = 0
+	config    = Config{}
 	fileList  = make([]interface{}, 0)
 )
 
@@ -46,24 +46,20 @@ func main() {
 	c := flag.String("C", "./config.json", "配置文件路径")
 	flag.Parse()
 
-	fileCount = 0
-
-	config = Config{}
-	//读取json配置
+	// 读取json配置
 	data, err := ioutil.ReadFile(*c)
 	if err != nil {
 		log.Fatalf("%v\n", err)
 		return
 	}
 
-	err = json.Unmarshal(data, &config)
-	if err != nil {
+	if err = json.Unmarshal(data, &config); err != nil {
 		log.Fatalf("%v\n", err)
 		return
 	}
 
-	//创建输出路径
-	outList := [3]string{config.Txt, config.Lua, config.JSON}
+	// 创建输出路径
+	outList := []string{config.Txt, config.Lua, config.JSON}
 	for _, v := range outList {
 		if v != "" {
 			err = createDir(v)
@@ -73,8 +69,8 @@ func main() {
 		}
 	}
 
-	//遍历打印所有的文件名
-	filepath.Walk(config.Configs, walkFunc)
+	// 遍历打印所有的文件名
+	filepath.Walk(config.Root, walkFunc)
 	count := 0
 	for {
 		sheetName, open := <-ch
@@ -98,7 +94,7 @@ func main() {
 	time.Sleep(time.Millisecond * 1500)
 }
 
-//写文件列表
+// 写文件列表
 func writeFileList() {
 	data := make(map[string]interface{}, 1)
 
@@ -122,7 +118,7 @@ func writeFileList() {
 	}
 }
 
-//创建文件夹
+// 创建文件夹
 func createDir(dir string) error {
 	exist, err := pathExists(dir)
 	if err != nil {
@@ -131,8 +127,7 @@ func createDir(dir string) error {
 	}
 
 	if !exist {
-		err := os.MkdirAll(dir, os.ModePerm)
-		if err != nil {
+		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 			log.Fatalf("mkdir failed![%v]\n", err)
 		} else {
 			log.Infof("mkdir success!\n")
@@ -141,7 +136,7 @@ func createDir(dir string) error {
 	return nil
 }
 
-//判断文件夹是否存在
+// 判断文件夹是否存在
 func pathExists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
@@ -162,9 +157,9 @@ func walkFunc(files string, info os.FileInfo, err error) error {
 	return nil
 }
 
-//解析xlsx
+// 解析xlsx
 func parseXlsx(path string, fileName string) {
-	//打开excel
+	// 打开excel
 	xlsx, err := excelize.OpenFile(path)
 	if err != nil {
 		log.Errorf("%s %s", fileName, err)
@@ -196,7 +191,7 @@ func parseXlsx(path string, fileName string) {
 	totalLineNum := len(lines)
 	for n, line := range lines {
 		line = line[0:fieldCount]
-		if strings.HasPrefix(line[0], config.Comment) { //注释符跳过
+		if strings.HasPrefix(line[0], config.Comment) { // 注释符跳过
 			continue
 		}
 
@@ -248,19 +243,17 @@ func parseXlsx(path string, fileName string) {
 	ch <- sheetName
 }
 
-//类型转换
+// 类型转换
 func typeConvert(ty string, value string) interface{} {
 	switch ty {
 	case "int":
 		arrValue := strings.Split(value, ".")
-		i, err := strconv.ParseInt(arrValue[0], 10, 64)
-		if err == nil {
+		if i, err := strconv.ParseInt(arrValue[0], 10, 64); err == nil {
 			return i
 		}
 		return value
 	case "float":
-		f, err := strconv.ParseFloat(value, 64)
-		if err == nil {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
 		}
 		return value
@@ -268,19 +261,15 @@ func typeConvert(ty string, value string) interface{} {
 		return value
 	case "auto":
 		var m map[string]interface{}
-		err := json.Unmarshal([]byte(value), &m)
-		if err == nil {
+		if err := json.Unmarshal([]byte(value), &m); err == nil {
 			return m
 		}
 
 		var arr []interface{}
-		err = json.Unmarshal([]byte(value), &arr)
-
-		if err == nil {
+		if err := json.Unmarshal([]byte(value), &arr); err == nil {
 			return arr
 		} else {
-			f, err := strconv.ParseFloat(value, 64)
-			if err == nil {
+			if f, err := strconv.ParseFloat(value, 64); err == nil {
 				return f
 			}
 		}
@@ -289,7 +278,7 @@ func typeConvert(ty string, value string) interface{} {
 	return value
 }
 
-//转字为符串
+// 转字为符串
 func data2Str(data interface{}) string {
 	b, err := json.Marshal(data)
 	if err != nil {
@@ -299,7 +288,7 @@ func data2Str(data interface{}) string {
 	return string(b)
 }
 
-//写txt文件
+// 写txt文件
 func writeTxt(path string, fileName string, buffer *bytes.Buffer) {
 	file, err := os.OpenFile(path+"/"+fileName+".txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
@@ -310,7 +299,7 @@ func writeTxt(path string, fileName string, buffer *bytes.Buffer) {
 	file.Write(buffer.Bytes())
 }
 
-//写JSON文件
+// 写JSON文件
 func writeJSON(path string, fileName string, data interface{}) {
 	file, err := os.OpenFile(path+"/"+fileName+".json", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
@@ -322,7 +311,7 @@ func writeJSON(path string, fileName string, data interface{}) {
 	file.WriteString(data2Str(data))
 }
 
-//写Lua文件
+// 写Lua文件
 func writeLuaTable(path string, fileName string, data interface{}) {
 	file, err := os.OpenFile(path+"/"+fileName+".lua", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
@@ -335,7 +324,7 @@ func writeLuaTable(path string, fileName string, data interface{}) {
 	writeLuaTableContent(file, data, 0)
 }
 
-//写Lua表内容
+// 写Lua表内容
 func writeLuaTableContent(file *os.File, data interface{}, idx int) {
 	switch t := data.(type) {
 	case int64:
@@ -357,6 +346,7 @@ func writeLuaTableContent(file *os.File, data interface{}, idx int) {
 	case []string:
 		file.WriteString("{\n")
 		a := data.([]string)
+		sort.Strings(a)
 		for _, v := range a {
 			addTabs(file, idx)
 			writeLuaTableContent(file, v, idx+1)
@@ -366,13 +356,19 @@ func writeLuaTableContent(file *os.File, data interface{}, idx int) {
 		file.WriteString("}")
 	case map[string]interface{}:
 		m := data.(map[string]interface{})
+		keys := make([]string, 0)
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
 		file.WriteString("{\n")
-		for k, v := range m {
+		for _, k := range keys {
 			addTabs(file, idx)
 			file.WriteString("[")
 			writeLuaTableContent(file, k, idx+1)
 			file.WriteString("] = ")
-			writeLuaTableContent(file, v, idx+1)
+			writeLuaTableContent(file, m[k], idx+1)
 			file.WriteString(",\n")
 		}
 		addTabs(file, idx-1)
@@ -383,7 +379,7 @@ func writeLuaTableContent(file *os.File, data interface{}, idx int) {
 	}
 }
 
-//在文件中添加制表符
+// 在文件中添加制表符
 func addTabs(file *os.File, idx int) {
 	for i := 0; i < idx; i++ {
 		file.WriteString("\t")

@@ -1,15 +1,15 @@
 return {
 {
-	"IndexInt",
-	"IndexStr",
-	"_Int",
-	"_Float",
-	"string",
 	"Arr1",
 	"Arr2",
 	"Arr3",
-	"St",
+	"IndexInt",
+	"IndexStr",
 	"M",
+	"St",
+	"_Float",
+	"_Int",
+	"string",
 },
 {
 	1,

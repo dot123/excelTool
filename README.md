@@ -17,7 +17,7 @@
 
 ```
 type Config struct {
-	Configs      string
+	Root         string
 	Txt          string
 	JSON         string
 	Lua          string
