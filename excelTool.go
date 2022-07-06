@@ -96,7 +96,7 @@ func main() {
 
 // 写文件列表
 func writeFileList() {
-	data := make(map[string]interface{}, 1)
+	data := make(map[string]interface{})
 
 	sortList := make([]string, len(fileList))
 	for i, v := range fileList {
@@ -260,7 +260,7 @@ func typeConvert(ty string, value string) interface{} {
 	case "string":
 		return value
 	case "auto":
-		var m map[string]interface{}
+		m := make(map[string]interface{})
 		if err := json.Unmarshal([]byte(value), &m); err == nil {
 			return m
 		}
