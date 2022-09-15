@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -91,7 +92,7 @@ func main() {
 
 	endTime := time.Now().UnixNano()
 	log.Infof("总耗时:%v毫秒\n", (endTime-startTime)/1000000)
-	time.Sleep(time.Millisecond * 1500)
+	time.Sleep(time.Second)
 }
 
 // 写文件列表
@@ -106,15 +107,15 @@ func writeFileList() {
 	data["fileList"] = sortList
 
 	if config.Txt != "" {
-		writeJSON(config.Txt, "fileList", data)
+		writeJSON(config.Txt, "fileList", &data)
 	}
 
 	if config.JSON != "" {
-		writeJSON(config.JSON, "fileList", data)
+		writeJSON(config.JSON, "fileList", &data)
 	}
 
 	if config.Lua != "" {
-		writeLuaTable(config.Lua, "fileList", data)
+		writeLuaTable(config.Lua, "fileList", &data)
 	}
 }
 
@@ -233,11 +234,11 @@ func parseXlsx(path string, fileName string) {
 	}
 
 	if config.JSON != "" {
-		writeJSON(config.JSON, sheetName, data)
+		writeJSON(config.JSON, sheetName, &data)
 	}
 
 	if config.Lua != "" {
-		writeLuaTable(config.Lua, sheetName, data)
+		writeLuaTable(config.Lua, sheetName, &data)
 	}
 
 	ch <- sheetName
@@ -326,6 +327,11 @@ func writeLuaTable(path string, fileName string, data interface{}) {
 
 // 写Lua表内容
 func writeLuaTableContent(file *os.File, data interface{}, idx int) {
+	// 如果是指针类型
+	if reflect.ValueOf(data).Type().Kind() == reflect.Pointer {
+		data = reflect.ValueOf(data).Elem().Interface()
+	}
+
 	switch t := data.(type) {
 	case int64:
 		file.WriteString(fmt.Sprintf("%d", data))
