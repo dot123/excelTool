@@ -171,11 +171,11 @@ func parseXlsx(path string, fileName string) {
 	sheetName := xlsx.GetSheetName(1)
 	var lines = xlsx.GetRows(sheetName)
 
-	fields := lines[config.FieldLine-1]
-	for i, field := range fields {
-		if field == "" {
-			fields = append(fields[:i])
-			break
+	fields := make([]string, 0)
+	strlist := lines[config.FieldLine-1]
+	for _, field := range strlist {
+		if field != "" {
+			fields = append(fields, field)
 		}
 	}
 
