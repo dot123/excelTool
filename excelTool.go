@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/360EntSecGroup-Skylar/excelize"
 	log "github.com/sirupsen/logrus"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -48,15 +47,37 @@ func main() {
 	flag.Parse()
 
 	// 读取json配置
-	data, err := ioutil.ReadFile(*c)
+	data, err := os.ReadFile(*c)
 	if err != nil {
 		log.Fatalf("%v\n", err)
 		return
 	}
 
-	if err = json.Unmarshal(data, &config); err != nil {
+	if err := json.Unmarshal(data, &config); err != nil {
 		log.Fatalf("%v\n", err)
 		return
+	}
+
+	// 删除旧资源
+	if config.Txt != "" {
+		if err := os.RemoveAll(config.Txt); err != nil {
+			log.Fatalf("%v\n", err)
+			return
+		}
+	}
+
+	if config.JSON != "" {
+		if err := os.RemoveAll(config.JSON); err != nil {
+			log.Fatalf("%v\n", err)
+			return
+		}
+	}
+
+	if config.Lua != "" {
+		if err := os.RemoveAll(config.Lua); err != nil {
+			log.Fatalf("%v\n", err)
+			return
+		}
 	}
 
 	// 创建输出路径
@@ -170,16 +191,18 @@ func parseXlsx(path string, fileName string) {
 
 	sheetName := xlsx.GetSheetName(1)
 	var lines = xlsx.GetRows(sheetName)
-
-	fields := lines[config.FieldLine-1]
-	for i, field := range fields {
-		if field == "" {
-			fields = append(fields[:i])
-			break
+	fields := make([]string, 0)
+	fieldList := lines[config.FieldLine-1]
+	for _, field := range fieldList {
+		if field != "" {
+			fields = append(fields, field)
 		}
 	}
 
 	fieldCount := len(fields)
+	if fieldCount == 0 {
+		return
+	}
 
 	types := lines[config.TypeLine-1]
 
@@ -191,7 +214,9 @@ func parseXlsx(path string, fileName string) {
 	lineNum := 0
 	totalLineNum := len(lines)
 	for n, line := range lines {
-		line = line[0:fieldCount]
+		if len(line) == 0 {
+			continue
+		}
 		if strings.HasPrefix(line[0], config.Comment) { // 注释符跳过
 			continue
 		}
@@ -202,7 +227,10 @@ func parseXlsx(path string, fileName string) {
 		}
 
 		fieldNum := 0
-		for _, value := range line {
+		for i, value := range line {
+			if fieldList[i] == "" {
+				continue
+			}
 			fieldNum++
 			buffer.WriteString(value)
 			if fieldNum < fieldCount {
@@ -220,6 +248,9 @@ func parseXlsx(path string, fileName string) {
 
 		var lineData []interface{}
 		for i, value := range line {
+			if fieldList[i] == "" {
+				continue
+			}
 			lineData = append(lineData, typeConvert(types[i], value))
 		}
 		data = append(data, lineData)
