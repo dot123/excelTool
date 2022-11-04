@@ -200,8 +200,8 @@ func parseXlsx(path string, fileName string) {
 	fieldCount := len(idxList)
 
 	fields := make([]string, 0)
-	for _, v := range fieldMap {
-		fields = append(fields, v)
+	for _, idx := range idxList {
+		fields = append(fields, fieldMap[idx])
 	}
 
 	var data []interface{}
