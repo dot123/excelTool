@@ -7,13 +7,15 @@
 
 3.开头#号注释。
 
-4.config.json可以配置导出路径如不填则不导出该文件。
+4.表格列或行有留空则跳过。
 
-5.fileList方便读取所有导出的文件。
+5.config.json可以配置导出路径如不填则不导出该文件。
 
-6.支持数据类型有int、 float、 string、 auto。
+6.fileList方便读取所有导出的文件。
 
-6.配置说明
+7.支持数据类型有int、 float、 string、 auto。
+
+8.配置说明
 
 ```
 type Config struct {

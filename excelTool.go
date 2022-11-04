@@ -171,56 +171,81 @@ func parseXlsx(path string, fileName string) {
 	sheetName := xlsx.GetSheetName(1)
 	var lines = xlsx.GetRows(sheetName)
 
-	fields := make([]string, 0)
-	strlist := lines[config.FieldLine-1]
-	for _, field := range strlist {
-		if field != "" {
-			fields = append(fields, field)
+	fieldMap := map[int]string{}
+	set := map[string]int{}
+	fieldList := lines[config.FieldLine-1]
+	for i, field := range fieldList {
+		if idx, ok := set[field]; ok {
+			fieldMap[i] = fieldMap[idx]
+			delete(fieldMap, idx)
+		} else {
+			if field != "" {
+				set[field] = i
+				fieldMap[i] = field
+			}
 		}
 	}
 
-	fieldCount := len(fields)
+	idxList := make([]int, 0)
+	for k := range fieldMap {
+		idxList = append(idxList, k)
+	}
 
-	types := lines[config.TypeLine-1]
+	sort.Ints(idxList)
+	if len(idxList) == 0 {
+		return
+	}
+	lineStart := idxList[0] // 主键第几列
+
+	fieldCount := len(idxList)
+
+	fields := make([]string, 0)
+	for _, v := range fieldMap {
+		fields = append(fields, v)
+	}
 
 	var data []interface{}
 	data = append(data, fields)
-
 	var buffer bytes.Buffer
 
-	lineNum := 0
 	totalLineNum := len(lines)
 	for n, line := range lines {
-		line = line[0:fieldCount]
+		if len(line) == 0 {
+			continue
+		}
+
 		if strings.HasPrefix(line[0], config.Comment) { // 注释符跳过
 			continue
 		}
 
-		if line[0] == "" {
-			log.Errorf("%s.xlsx (row=%v,col=0) error: is '' \n", fileName, n+1)
+		if line[lineStart] == "" { // 主键不能为空
+			log.Errorf("%s.xlsx (row=%v,col=%d) error: is '主键不能为空' \n", sheetName, n+1, lineStart+1)
 			continue
 		}
 
 		fieldNum := 0
-		for _, value := range line {
-			fieldNum++
-			buffer.WriteString(value)
-			if fieldNum < fieldCount {
-				buffer.WriteString(config.Comma)
+		for i, value := range line {
+			if _, ok := fieldMap[i]; ok {
+				fieldNum++
+				buffer.WriteString(value)
+				if fieldNum < fieldCount {
+					buffer.WriteString(config.Comma)
+				}
 			}
 		}
-		if lineNum < totalLineNum {
+		if n < totalLineNum {
 			buffer.WriteString(config.Linefeed)
 		}
 
-		lineNum++
-		if lineNum < config.DataLine {
+		if n < config.DataLine-1 {
 			continue
 		}
 
 		var lineData []interface{}
 		for i, value := range line {
-			lineData = append(lineData, typeConvert(types[i], value))
+			if _, ok := fieldMap[i]; ok {
+				lineData = append(lineData, typeConvert(lines[config.TypeLine-1][i], value))
+			}
 		}
 		data = append(data, lineData)
 	}
