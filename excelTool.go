@@ -14,7 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -33,10 +33,10 @@ type Config struct {
 }
 
 var (
-	ch       = make(chan string)
-	config   = Config{}
-	fileList = make([]interface{}, 0)
-	wg       sync.WaitGroup
+	ch              = make(chan string, 10)
+	fileCount int32 = 0
+	config          = Config{}
+	fileList        = make([]interface{}, 0)
 )
 
 func main() {
@@ -73,18 +73,23 @@ func main() {
 	// 遍历打印所有的文件名
 	filepath.Walk(config.Root, walkFunc)
 
-	select {
-	case sheetName, open := <-ch:
+	var count int32 = 0
+	for {
+		sheetName, open := <-ch
 		if !open {
 			break
 		}
+
 		if sheetName != "" {
 			fileList = append(fileList, sheetName)
 		}
-	}
 
-	wg.Wait()
-	writeFileList()
+		count++
+		if count == fileCount {
+			writeFileList()
+			break
+		}
+	}
 
 	endTime := time.Now().UnixNano()
 	log.Infof("总耗时:%v毫秒\n", (endTime-startTime)/1000000)
@@ -148,7 +153,7 @@ func pathExists(path string) (bool, error) {
 func walkFunc(files string, info os.FileInfo, err error) error {
 	_, fileName := filepath.Split(files)
 	if path.Ext(files) == ".xlsx" && !strings.HasPrefix(fileName, "~$") && !strings.HasPrefix(fileName, "#") {
-		wg.Add(1)
+		atomic.AddInt32(&fileCount, 1)
 		go parseXlsx(files, strings.Replace(fileName, ".xlsx", "", -1))
 	}
 	return nil
@@ -156,8 +161,6 @@ func walkFunc(files string, info os.FileInfo, err error) error {
 
 // 解析xlsx
 func parseXlsx(path string, fileName string) {
-	defer wg.Done()
-
 	// 打开excel
 	xlsx, err := excelize.OpenFile(path)
 	if err != nil {
@@ -191,6 +194,7 @@ func parseXlsx(path string, fileName string) {
 
 	sort.Ints(idxList)
 	if len(idxList) == 0 {
+		ch <- ""
 		return
 	}
 	lineStart := idxList[0] // 主键第几列
