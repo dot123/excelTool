@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/360EntSecGroup-Skylar/excelize"
 	log "github.com/sirupsen/logrus"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,10 +33,10 @@ type Config struct {
 }
 
 var (
-	ch        = make(chan string)
-	fileCount = 0
-	config    = Config{}
-	fileList  = make([]interface{}, 0)
+	ch       = make(chan string)
+	config   = Config{}
+	fileList = make([]interface{}, 0)
+	wg       sync.WaitGroup
 )
 
 func main() {
@@ -48,7 +48,7 @@ func main() {
 	flag.Parse()
 
 	// 读取json配置
-	data, err := ioutil.ReadFile(*c)
+	data, err := os.ReadFile(*c)
 	if err != nil {
 		log.Fatalf("%v\n", err)
 		return
@@ -72,23 +72,19 @@ func main() {
 
 	// 遍历打印所有的文件名
 	filepath.Walk(config.Root, walkFunc)
-	count := 0
-	for {
-		sheetName, open := <-ch
+
+	select {
+	case sheetName, open := <-ch:
 		if !open {
 			break
 		}
-
 		if sheetName != "" {
 			fileList = append(fileList, sheetName)
 		}
-
-		count++
-		if count == fileCount {
-			writeFileList()
-			break
-		}
 	}
+
+	wg.Wait()
+	writeFileList()
 
 	endTime := time.Now().UnixNano()
 	log.Infof("总耗时:%v毫秒\n", (endTime-startTime)/1000000)
@@ -152,7 +148,7 @@ func pathExists(path string) (bool, error) {
 func walkFunc(files string, info os.FileInfo, err error) error {
 	_, fileName := filepath.Split(files)
 	if path.Ext(files) == ".xlsx" && !strings.HasPrefix(fileName, "~$") && !strings.HasPrefix(fileName, "#") {
-		fileCount++
+		wg.Add(1)
 		go parseXlsx(files, strings.Replace(fileName, ".xlsx", "", -1))
 	}
 	return nil
@@ -160,6 +156,8 @@ func walkFunc(files string, info os.FileInfo, err error) error {
 
 // 解析xlsx
 func parseXlsx(path string, fileName string) {
+	defer wg.Done()
+
 	// 打开excel
 	xlsx, err := excelize.OpenFile(path)
 	if err != nil {
