@@ -342,6 +342,11 @@ func writeLuaTable(path string, fileName string, data interface{}) {
 
 // 写Lua表内容
 func writeLuaTableContent(file *os.File, data interface{}, idx int) {
+	if data == nil {
+		file.WriteString("nil")
+		return
+	}
+
 	// 如果是指针类型
 	if reflect.ValueOf(data).Type().Kind() == reflect.Pointer {
 		data = reflect.ValueOf(data).Elem().Interface()
