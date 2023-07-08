@@ -289,6 +289,8 @@ func typeConvert(ty string, value string) interface{} {
 				return f
 			}
 		}
+	default:
+		log.Fatalf("error in type %s\n", ty)
 	}
 
 	return value
