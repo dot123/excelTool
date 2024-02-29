@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/360EntSecGroup-Skylar/excelize"
+	"github.com/shamaton/msgpack/v2"
 	log "github.com/sirupsen/logrus"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -19,13 +22,15 @@ import (
 )
 
 type Config struct {
-	Root         string
-	Txt          string
-	JSON         string
-	Lua          string
+	Root         string // excel配置表根目录
+	Txt          string // txt格式导出路径
+	JSON         string // json格式导出路径
+	Lua          string // lua格式导出路径
+	Bin          string // msgpack格式json导出路径
 	FieldLine    int    // 字段key开始行
-	DataLine     int    // 有效配置开始行
 	TypeLine     int    // 类型配置开始行
+	DataLine     int    // 有效配置开始行
+	UseZlib      bool   // 是否使用zlib压缩
 	Comma        string // txt分隔符,默认是制表符
 	Comment      string // excel注释符
 	Linefeed     string // txt换行符
@@ -50,17 +55,15 @@ func main() {
 	// 读取json配置
 	data, err := os.ReadFile(*c)
 	if err != nil {
-		log.Fatalf("%v\n", err)
-		return
+		log.Fatal(err)
 	}
 
 	if err = json.Unmarshal(data, &config); err != nil {
-		log.Fatalf("%v\n", err)
-		return
+		log.Fatal(err)
 	}
 
 	// 创建输出路径
-	outList := []string{config.Txt, config.Lua, config.JSON}
+	outList := []string{config.Txt, config.Lua, config.JSON, config.Bin}
 	for _, v := range outList {
 		if v != "" {
 			err = createDir(v)
@@ -71,7 +74,9 @@ func main() {
 	}
 
 	// 遍历打印所有的文件名
-	filepath.Walk(config.Root, walkFunc)
+	if err := filepath.Walk(config.Root, walkFunc); err != nil {
+		log.Fatal(err)
+	}
 
 	wg.Wait()
 
@@ -103,6 +108,10 @@ func writeFileList() {
 
 	if config.Lua != "" {
 		writeLuaTable(config.Lua, "fileList", &data)
+	}
+
+	if config.Bin != "" {
+		writeBin(config.Bin, "fileList", &data)
 	}
 }
 
@@ -211,18 +220,20 @@ func parseXlsx(path string, fileName string) {
 			continue
 		}
 
-		fieldNum := 0
-		for i, value := range line {
-			if _, ok := fieldMap[i]; ok {
-				fieldNum++
-				buffer.WriteString(value)
-				if fieldNum < fieldCount {
-					buffer.WriteString(config.Comma)
+		if config.Txt != "" {
+			fieldNum := 0
+			for i, value := range line {
+				if _, ok := fieldMap[i]; ok {
+					fieldNum++
+					buffer.WriteString(value)
+					if fieldNum < fieldCount {
+						buffer.WriteString(config.Comma)
+					}
 				}
 			}
-		}
-		if n < totalLineNum {
-			buffer.WriteString(config.Linefeed)
+			if n < totalLineNum {
+				buffer.WriteString(config.Linefeed)
+			}
 		}
 
 		if n < config.DataLine-1 {
@@ -254,98 +265,157 @@ func parseXlsx(path string, fileName string) {
 		writeLuaTable(config.Lua, sheetName, &data)
 	}
 
+	if config.Bin != "" {
+		writeBin(config.Bin, sheetName, &data)
+	}
+
 	rwlock.Lock()
 	fileList = append(fileList, sheetName)
 	rwlock.Unlock()
+}
+
+func toFloat(value string) interface{} {
+	float64Value, err := strconv.ParseFloat(value, 64)
+	if err == nil {
+		if float64Value >= math.SmallestNonzeroFloat32 && float64Value <= math.MaxFloat32 {
+			// float32 大约提供 6-7 位的精度
+			if len(value) <= 7 {
+				return float32(float64Value)
+			}
+		}
+		return float64Value
+	}
+	return nil
+}
+
+func toInt(value string, force bool) interface{} {
+	if force {
+		value = strings.Split(value, ".")[0]
+	}
+
+	intValue, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return nil
+	}
+	return intValue
+}
+
+func toNumber(value string) interface{} {
+	if uintValue := toInt(value, false); uintValue != nil {
+		return uintValue
+	}
+
+	if floatValue := toFloat(value); floatValue != nil {
+		return floatValue
+	}
+
+	return nil
+}
+
+func processNestedJSON(jsonData interface{}, key interface{}, value interface{}) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		// 处理嵌套的 JSON 对象
+		for nestedKey, nestedValue := range v {
+			processNestedJSON(v, nestedKey, nestedValue)
+		}
+	case []interface{}:
+		// 处理嵌套的 JSON 对象
+		for nestedKey, nestedValue := range v {
+			processNestedJSON(v, nestedKey, nestedValue)
+		}
+	case float64:
+		str := strconv.FormatFloat(v, 'f', -1, 64)
+		if num := toNumber(str); num != nil {
+			switch m := jsonData.(type) {
+			case map[string]interface{}:
+				m[key.(string)] = num
+			case []interface{}:
+				m[key.(int)] = num
+			}
+		} else {
+			log.Fatal(fmt.Errorf("failed to convert '%s' to a valid number", value))
+		}
+	}
+}
+
+func toJson(data []byte) interface{} {
+	var jsonData map[string]interface{}
+	if err := json.Unmarshal(data, &jsonData); err == nil {
+		for key, value := range jsonData {
+			processNestedJSON(jsonData, key, value)
+		}
+		return jsonData
+	}
+
+	var arr []interface{}
+	if err := json.Unmarshal(data, &arr); err == nil {
+		for key, value := range arr {
+			processNestedJSON(arr, key, value)
+		}
+		return arr
+	}
+
+	return nil
 }
 
 // 类型转换
 func typeConvert(ty string, value string) interface{} {
 	switch ty {
 	case "int":
-		arrValue := strings.Split(value, ".")
-		if i, err := strconv.ParseInt(arrValue[0], 10, 64); err == nil {
-			return i
+		intValue := toInt(value, true)
+		if intValue != nil {
+			return intValue
 		}
-		return value
 	case "float":
-		if f, err := strconv.ParseFloat(value, 64); err == nil {
-			return f
+		floatValue := toFloat(value)
+		if floatValue != nil {
+			return floatValue
 		}
-		return value
 	case "string":
 		return value
 	case "auto":
-		m := make(map[string]interface{})
-		if err := json.Unmarshal([]byte(value), &m); err == nil {
+		m := toJson([]byte(value))
+		if m != nil {
 			return m
-		}
-
-		var arr []interface{}
-		if err := json.Unmarshal([]byte(value), &arr); err == nil {
-			return arr
-		} else {
-			if f, err := strconv.ParseFloat(value, 64); err == nil {
-				return f
-			}
 		}
 	default:
 		log.Fatalf("error in type %s\n", ty)
 	}
 
-	return value
-}
+	log.Fatal(fmt.Errorf("failed to convert '%s' to a valid number", value))
 
-// 转字为符串
-func data2Str(data interface{}) string {
-	b, err := json.Marshal(data)
-	if err != nil {
-		log.Errorln(err)
-		return ""
-	}
-	return string(b)
+	return nil
 }
 
 // 写txt文件
 func writeTxt(path string, fileName string, buffer *bytes.Buffer) {
-	file, err := os.OpenFile(path+"/"+fileName+".txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
-	if err != nil {
-		log.Errorln("open file failed. ", err.Error())
-		return
-	}
-	defer file.Close()
-	file.Write(buffer.Bytes())
+	writeToFile(buffer.Bytes(), path+"/"+fileName+".txt")
 }
 
 // 写JSON文件
 func writeJSON(path string, fileName string, data interface{}) {
-	file, err := os.OpenFile(path+"/"+fileName+".json", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	b, err := json.Marshal(data)
 	if err != nil {
-		log.Errorln("open file failed.", err.Error())
-		return
+		log.Fatal(err)
 	}
 
-	defer file.Close()
-	file.WriteString(data2Str(data))
+	writeToFile(b, path+"/"+fileName+".json")
 }
 
 // 写Lua文件
 func writeLuaTable(path string, fileName string, data interface{}) {
-	file, err := os.OpenFile(path+"/"+fileName+".lua", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
-	if err != nil {
-		log.Errorln("open file failed.", err.Error())
-		return
-	}
+	var buffer bytes.Buffer
+	buffer.WriteString("return ")
+	writeLuaTableContent(&buffer, data, 0)
 
-	defer file.Close()
-	file.WriteString("return ")
-	writeLuaTableContent(file, data, 0)
+	writeToFile(buffer.Bytes(), path+"/"+fileName+".lua")
 }
 
 // 写Lua表内容
-func writeLuaTableContent(file *os.File, data interface{}, idx int) {
+func writeLuaTableContent(buffer *bytes.Buffer, data interface{}, idx int) {
 	if data == nil {
-		file.WriteString("nil")
+		buffer.WriteString("nil")
 		return
 	}
 
@@ -355,33 +425,33 @@ func writeLuaTableContent(file *os.File, data interface{}, idx int) {
 	}
 
 	switch t := data.(type) {
-	case int64:
-		file.WriteString(fmt.Sprintf("%d", data))
-	case float64:
-		file.WriteString(fmt.Sprintf("%v", data))
+	case int8, uint8, int16, uint16, int32, uint32, int64, uint64:
+		buffer.WriteString(fmt.Sprintf("%d", data))
+	case float32, float64:
+		buffer.WriteString(fmt.Sprintf("%v", data))
 	case string:
-		file.WriteString(fmt.Sprintf(`"%s"`, data))
+		buffer.WriteString(fmt.Sprintf(`"%s"`, data))
 	case []interface{}:
-		file.WriteString("{\n")
+		buffer.WriteString("{\n")
 		a := data.([]interface{})
 		for _, v := range a {
-			addTabs(file, idx)
-			writeLuaTableContent(file, v, idx+1)
-			file.WriteString(",\n")
+			addTabs(buffer, idx)
+			writeLuaTableContent(buffer, v, idx+1)
+			buffer.WriteString(",\n")
 		}
-		addTabs(file, idx-1)
-		file.WriteString("}")
+		addTabs(buffer, idx-1)
+		buffer.WriteString("}")
 	case []string:
-		file.WriteString("{\n")
+		buffer.WriteString("{\n")
 		a := data.([]string)
 		sort.Strings(a)
 		for _, v := range a {
-			addTabs(file, idx)
-			writeLuaTableContent(file, v, idx+1)
-			file.WriteString(",\n")
+			addTabs(buffer, idx)
+			writeLuaTableContent(buffer, v, idx+1)
+			buffer.WriteString(",\n")
 		}
-		addTabs(file, idx-1)
-		file.WriteString("}")
+		addTabs(buffer, idx-1)
+		buffer.WriteString("}")
 	case map[string]interface{}:
 		m := data.(map[string]interface{})
 		keys := make([]string, 0)
@@ -390,26 +460,70 @@ func writeLuaTableContent(file *os.File, data interface{}, idx int) {
 		}
 		sort.Strings(keys)
 
-		file.WriteString("{\n")
+		buffer.WriteString("{\n")
 		for _, k := range keys {
-			addTabs(file, idx)
-			file.WriteString("[")
-			writeLuaTableContent(file, k, idx+1)
-			file.WriteString("] = ")
-			writeLuaTableContent(file, m[k], idx+1)
-			file.WriteString(",\n")
+			addTabs(buffer, idx)
+			buffer.WriteString("[")
+			writeLuaTableContent(buffer, k, idx+1)
+			buffer.WriteString("] = ")
+			writeLuaTableContent(buffer, m[k], idx+1)
+			buffer.WriteString(",\n")
 		}
-		addTabs(file, idx-1)
-		file.WriteString("}")
+		addTabs(buffer, idx-1)
+		buffer.WriteString("}")
 	default:
-		file.WriteString(fmt.Sprintf("%t", data))
+		buffer.WriteString(fmt.Sprintf("%t", data))
 		_ = t
 	}
 }
 
 // 在文件中添加制表符
-func addTabs(file *os.File, idx int) {
+func addTabs(buffer *bytes.Buffer, idx int) {
 	for i := 0; i < idx; i++ {
-		file.WriteString("\t")
+		buffer.WriteString("\t")
 	}
+}
+
+// 写bin文件
+func writeBin(path string, fileName string, data interface{}) {
+	b, err := msgpack.Marshal(data)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	writeToFile(b, path+"/"+fileName+".bin")
+}
+
+func writeToFile(inputData []byte, path string) {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		log.Fatal("open file failed.", err.Error())
+	}
+
+	defer file.Close()
+
+	if config.UseZlib {
+		if _, err := file.Write(compressData(inputData)); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		if _, err := file.Write(inputData); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func compressData(inputData []byte) []byte {
+	var compressedBuffer bytes.Buffer
+	compressor := zlib.NewWriter(&compressedBuffer)
+
+	if _, err := compressor.Write(inputData); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := compressor.Close(); err != nil {
+		log.Fatal(err)
+	}
+
+	return compressedBuffer.Bytes()
 }
