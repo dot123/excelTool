@@ -38,10 +38,10 @@ type Config struct {
 }
 
 var (
-	config   = Config{}
-	fileList = make([]interface{}, 0)
+	config   Config
+	fileList []interface{}
 	wg       sync.WaitGroup
-	rwlock   sync.RWMutex
+	rwMutex  sync.RWMutex
 )
 
 func main() {
@@ -183,7 +183,7 @@ func parseXlsx(path string, fileName string) {
 		}
 	}
 
-	idxList := make([]int, 0)
+	var idxList []int
 	for k := range fieldMap {
 		idxList = append(idxList, k)
 	}
@@ -196,7 +196,7 @@ func parseXlsx(path string, fileName string) {
 
 	fieldCount := len(idxList)
 
-	fields := make([]string, 0)
+	var fields []string
 	for _, idx := range idxList {
 		fields = append(fields, fieldMap[idx])
 	}
@@ -269,9 +269,9 @@ func parseXlsx(path string, fileName string) {
 		writeBin(config.Bin, sheetName, &data)
 	}
 
-	rwlock.Lock()
+	rwMutex.Lock()
 	fileList = append(fileList, sheetName)
-	rwlock.Unlock()
+	rwMutex.Unlock()
 }
 
 func toFloat(value string) interface{} {
@@ -454,7 +454,7 @@ func writeLuaTableContent(buffer *bytes.Buffer, data interface{}, idx int) {
 		buffer.WriteString("}")
 	case map[string]interface{}:
 		m := data.(map[string]interface{})
-		keys := make([]string, 0)
+		var keys []string
 		for k := range m {
 			keys = append(keys, k)
 		}
