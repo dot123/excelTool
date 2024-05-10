@@ -1,6 +1,6 @@
-数字索引	字符串索引	数字int类型	数字float类型	字符串类型	数组类型	嵌套数组	变长数组	结构体类型	map类型
-IndexInt	IndexStr	_Int	_Float	string	Arr1	Arr2	Arr3	St	M
-int	string	int	float	string	auto	auto	auto	auto	auto
-1	one	127.9	1.23	January	[1, 2]	[[0,1], [1,2], [2,3]]	[1, 2, 3]	{"name": "dot123", "num": 1}	{"key1": 127, "key2": 2.1}
-2	two	127	4.5599999999999996	February	[3, 4]	[[1,2], [2,3], [3,4]]	[4, 5]	{"name": "dot123", "num": 2}	{"key3": 3, "key4": 4}
-3	three	-128	7.89	March	[5, 6]	[[2,3], [3,4], [4,5]]	[6]	{"name": "dot123", "num": 3}	{"_int64": 2557113917912060000, "_float32": 12345.6,"_float64":123456.7}
+数字索引	数字int类型	数字float类型	字符串类型	整数数组	浮点数数组	字符串数组	任意类型数组	二维整数数组	浮点数数组	字符串数组	任意类型数组	auto类型	auto类型
+IndexInt	_Int	_Float	string	intArr	floatArr	stringArr	anyArr	intArr2	floatArr2	stringArr2	anyArr2	M	M2
+int	int	float	string	list,int	list,float	list,string	list,any	list,<list,int>	list,<list,float>	list,<list,string>	list,<list,any>	auto	auto
+1	127.9	1.23	January	[1, 2]	[1.1, 2.3]	["a"]	[1,"a"]	[[1, 2],[4,6]]	[[1.1, 2.3]]	[["a","b"]]	[[1,"a"],[3,4]]	{"key1": 127, "key2": 2.1}	1000
+2	127	4.5599999999999996	February	[3, 4]	[3, 4.6]	["b","c"]	["b","c"]	[[3, 4]]	[[3, 4.6],[9, 5.6]]	[["b","c"],["d","f"]]	[["b","c"]]	{"key3": 3, "key4": 4}	1.234567
+3	-128	7.89	March	[5, 6]	[5, 6]	["d","e","f"]	[2,"d",[4,5]]	[[5, 6]]	[[5, 6],[7,8]]	[["d","e","f"]]	[[2,"d",[4,5]]]	{"_int64": 2557113917912060000, "_float32": 12345.6,"_float64":123456.7}	hello

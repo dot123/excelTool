@@ -1,0 +1,16 @@
+export interface ITest {
+	anyArr: any[],
+	floatArr2: number[][],
+	M: any,
+	_Float: number,
+	floatArr: number[],
+	stringArr2: string[][],
+	stringArr: string[],
+	intArr2: number[][],
+	string: string,
+	intArr: number[],
+	anyArr2: any[][],
+	M2: any,
+	IndexInt: number,
+	_Int: number,
+}

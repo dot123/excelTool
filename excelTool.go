@@ -22,19 +22,22 @@ import (
 )
 
 type Config struct {
-	Root         string // excel配置表根目录
-	Txt          string // txt格式导出路径
-	JSON         string // json格式导出路径
-	Lua          string // lua格式导出路径
-	Bin          string // msgpack格式json导出路径
-	FieldLine    int    // 字段key开始行
-	TypeLine     int    // 类型配置开始行
-	DataLine     int    // 有效配置开始行
-	UseZlib      bool   // 是否使用zlib压缩
-	Comma        string // txt分隔符,默认是制表符
-	Comment      string // excel注释符
-	Linefeed     string // txt换行符
-	UseSheetName bool   // 使用工作表名为文件输出名
+	Root         string   // excel配置表根目录
+	Txt          string   // txt格式导出路径
+	JSON         string   // json格式导出路径
+	Lua          string   // lua格式导出路径
+	Bin          string   // msgpack格式json导出路径
+	TSInterface  string   // ts接口导出路径
+	Group        []string // 使用的分组如["c"]
+	FieldLine    int      // 字段key开始行
+	TypeLine     int      // 类型配置开始行
+	GroupLine    int      // 分组配置开始行
+	DataLine     int      // 有效配置开始行
+	UseZlib      bool     // 是否使用zlib压缩
+	Comma        string   // txt分隔符,默认是制表符
+	Comment      string   // excel注释符
+	Linefeed     string   // txt换行符
+	UseSheetName bool     // 使用工作表名为文件输出名
 }
 
 var (
@@ -62,8 +65,14 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// 数组从0开始
+	config.FieldLine--
+	config.TypeLine--
+	config.GroupLine--
+	config.DataLine--
+
 	// 创建输出路径
-	outList := []string{config.Txt, config.Lua, config.JSON, config.Bin}
+	outList := []string{config.Txt, config.Lua, config.JSON, config.Bin, config.TSInterface}
 	for _, v := range outList {
 		if v != "" {
 			err = createDir(v)
@@ -170,15 +179,17 @@ func parseXlsx(path string, fileName string) {
 
 	fieldMap := map[int]string{}
 	set := map[string]int{}
-	fieldList := lines[config.FieldLine-1]
+	fieldList := lines[config.FieldLine]
 	for i, field := range fieldList {
-		if idx, ok := set[field]; ok {
-			fieldMap[i] = fieldMap[idx]
-			delete(fieldMap, idx)
-		} else {
-			if field != "" {
-				set[field] = i
-				fieldMap[i] = field
+		if canAddData(lines[config.GroupLine][i]) { // 是否导出该字段
+			if idx, ok := set[field]; ok {
+				fieldMap[i] = fieldMap[idx]
+				delete(fieldMap, idx)
+			} else {
+				if field != "" {
+					set[field] = i
+					fieldMap[i] = field
+				}
 			}
 		}
 	}
@@ -216,11 +227,11 @@ func parseXlsx(path string, fileName string) {
 		}
 
 		if line[lineStart] == "" { // 主键不能为空
-			log.Errorf("%s.xlsx (row=%v,col=%d) error: is '主键不能为空' \n", sheetName, n+1, lineStart+1)
+			log.Errorf("%s.xlsx (row=%d,col=%d) error: is '主键不能为空' \n", sheetName, n+1, lineStart+1)
 			continue
 		}
 
-		if config.Txt != "" {
+		if config.Txt != "" && n != config.GroupLine {
 			fieldNum := 0
 			for i, value := range line {
 				if _, ok := fieldMap[i]; ok {
@@ -236,17 +247,24 @@ func parseXlsx(path string, fileName string) {
 			}
 		}
 
-		if n < config.DataLine-1 {
+		if n < config.DataLine {
 			continue
 		}
 
 		var lineData []interface{}
 		for i, value := range line {
 			if _, ok := fieldMap[i]; ok {
-				lineData = append(lineData, typeConvert(lines[config.TypeLine-1][i], value))
+				ret := typeConvert(lines[config.TypeLine][i], value)
+				if ret == nil {
+					log.Fatal(fmt.Errorf("%s.xlsx (row=%d,col=%d) error: failed to convert '%s' to a valid number", sheetName, n+1, i+1, value))
+				}
+				lineData = append(lineData, ret)
 			}
 		}
-		data = append(data, lineData)
+
+		if len(lineData) > 0 {
+			data = append(data, lineData)
+		}
 	}
 
 	if !config.UseSheetName {
@@ -269,9 +287,65 @@ func parseXlsx(path string, fileName string) {
 		writeBin(config.Bin, sheetName, &data)
 	}
 
+	if config.TSInterface != "" {
+		writeTSInterface(config.TSInterface, sheetName, lines[config.TypeLine], fieldMap)
+	}
+
 	rwMutex.Lock()
 	fileList = append(fileList, sheetName)
 	rwMutex.Unlock()
+}
+
+func canAddData(group string) bool {
+	strArr := strings.Split(group, "/")
+	for _, v := range config.Group {
+		for _, v2 := range strArr {
+			if v == v2 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func writeTSInterface(path string, fileName string, types []string, fieldMap map[int]string) {
+	file, err := os.OpenFile(path+"/"+fileName+".ts", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		log.Fatal("open file failed.", err.Error())
+	}
+
+	defer file.Close()
+
+	str := fmt.Sprintf("export interface I%s {", fileName)
+	for k, v := range fieldMap {
+		if v != "" {
+			ty := types[k]
+			if ty == "string" {
+				str = str + fmt.Sprintf("\n\t%s: %s,", v, "string")
+			} else if ty == "auto" {
+				str = str + fmt.Sprintf("\n\t%s: %s,", v, "any")
+			} else if ty == "int" || ty == "float" {
+				str = str + fmt.Sprintf("\n\t%s: %s,", v, "number")
+			} else if ty == "list,float" || ty == "list,int" {
+				str = str + fmt.Sprintf("\n\t%s: %s,", v, "number[]")
+			} else if ty == "list,string" {
+				str = str + fmt.Sprintf("\n\t%s: %s,", v, "string[]")
+			} else if ty == "list,any" {
+				str = str + fmt.Sprintf("\n\t%s: %s,", v, "any[]")
+			} else if ty == "list,<list,float>" || ty == "list,<list,int>" {
+				str = str + fmt.Sprintf("\n\t%s: %s,", v, "number[][]")
+			} else if ty == "list,<list,string>" {
+				str = str + fmt.Sprintf("\n\t%s: %s,", v, "string[][]")
+			} else if ty == "list,<list,any>" {
+				str = str + fmt.Sprintf("\n\t%s: %s,", v, "any[][]")
+			}
+		}
+	}
+	str = str + "\n}"
+
+	if _, err := file.WriteString(str); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func toFloat(value string) interface{} {
@@ -339,9 +413,13 @@ func processNestedJSON(jsonData interface{}, key interface{}, value interface{})
 	}
 }
 
-func toJson(data []byte) interface{} {
+func toJson(str string) interface{} {
+	if num := toNumber(str); num != nil {
+		return num
+	}
+
 	var jsonData map[string]interface{}
-	if err := json.Unmarshal(data, &jsonData); err == nil {
+	if err := json.Unmarshal([]byte(str), &jsonData); err == nil {
 		for key, value := range jsonData {
 			processNestedJSON(jsonData, key, value)
 		}
@@ -349,10 +427,82 @@ func toJson(data []byte) interface{} {
 	}
 
 	var arr []interface{}
-	if err := json.Unmarshal(data, &arr); err == nil {
+	if err := json.Unmarshal([]byte(str), &arr); err == nil {
 		for key, value := range arr {
 			processNestedJSON(arr, key, value)
 		}
+		return arr
+	}
+
+	return str
+}
+
+func toIntList(data []byte) []int64 {
+	var list []int64
+	if err := json.Unmarshal(data, &list); err == nil {
+		return list
+	}
+
+	return nil
+}
+
+func toFloatList(data []byte) []float64 {
+	var list []float64
+	if err := json.Unmarshal(data, &list); err == nil {
+		return list
+	}
+
+	return nil
+}
+
+func toStringList(data []byte) []string {
+	var list []string
+	if err := json.Unmarshal(data, &list); err == nil {
+		return list
+	}
+
+	return nil
+}
+
+func toAnyList(data []byte) []interface{} {
+	var arr []interface{}
+	if err := json.Unmarshal(data, &arr); err == nil {
+		return arr
+	}
+
+	return nil
+}
+
+func to2IntList(data []byte) [][]int64 {
+	var list [][]int64
+	if err := json.Unmarshal(data, &list); err == nil {
+		return list
+	}
+
+	return nil
+}
+
+func to2FloatList(data []byte) [][]float64 {
+	var list [][]float64
+	if err := json.Unmarshal(data, &list); err == nil {
+		return list
+	}
+
+	return nil
+}
+
+func to2StringList(data []byte) [][]string {
+	var list [][]string
+	if err := json.Unmarshal(data, &list); err == nil {
+		return list
+	}
+
+	return nil
+}
+
+func to2AnyList(data []byte) [][]interface{} {
+	var arr [][]interface{}
+	if err := json.Unmarshal(data, &arr); err == nil {
 		return arr
 	}
 
@@ -374,16 +524,54 @@ func typeConvert(ty string, value string) interface{} {
 		}
 	case "string":
 		return value
+	case "list,int":
+		m := toIntList([]byte(value))
+		if m != nil {
+			return m
+		}
+	case "list,float":
+		m := toFloatList([]byte(value))
+		if m != nil {
+			return m
+		}
+	case "list,string":
+		m := toStringList([]byte(value))
+		if m != nil {
+			return m
+		}
+	case "list,any":
+		m := toAnyList([]byte(value))
+		if m != nil {
+			return m
+		}
+	case "list,<list,int>":
+		m := to2IntList([]byte(value))
+		if m != nil {
+			return m
+		}
+	case "list,<list,float>":
+		m := to2FloatList([]byte(value))
+		if m != nil {
+			return m
+		}
+	case "list,<list,string>":
+		m := to2StringList([]byte(value))
+		if m != nil {
+			return m
+		}
+	case "list,<list,any>":
+		m := to2AnyList([]byte(value))
+		if m != nil {
+			return m
+		}
 	case "auto":
-		m := toJson([]byte(value))
+		m := toJson(value)
 		if m != nil {
 			return m
 		}
 	default:
 		log.Fatalf("error in type %s\n", ty)
 	}
-
-	log.Fatal(fmt.Errorf("failed to convert '%s' to a valid number", value))
 
 	return nil
 }
