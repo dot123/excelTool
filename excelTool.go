@@ -42,9 +42,8 @@ type Config struct {
 
 var (
 	config   Config
-	fileList []interface{}
+	fileList sync.Map
 	wg       sync.WaitGroup
-	rwMutex  sync.RWMutex
 )
 
 func main() {
@@ -55,57 +54,69 @@ func main() {
 	c := flag.String("C", "./config.json", "配置文件路径")
 	flag.Parse()
 
-	// 读取json配置
-	data, err := os.ReadFile(*c)
+	// 读取并解析配置
+	if err := loadConfig(*c); err != nil {
+		log.Fatal("Failed to load config:", err)
+		return
+	}
+
+	// 创建输出目录
+	if err := createOutputDirs(); err != nil {
+		log.Fatal("Failed to create output directories:", err)
+		return
+	}
+
+	// 遍历处理Excel文件
+	if err := filepath.Walk(config.Root, walkFunc); err != nil {
+		log.Fatal("Failed to walk directory:", err)
+		return
+	}
+
+	wg.Wait()
+	writeFileList()
+
+	endTime := time.Now().UnixNano()
+	log.Infof("总耗时:%v毫秒\n", (endTime-startTime)/1000000)
+}
+
+// 配置加载函数
+func loadConfig(configPath string) error {
+	data, err := os.ReadFile(configPath)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("read config file: %w", err)
 	}
 
 	if err = json.Unmarshal(data, &config); err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("parse config: %w", err)
 	}
 
-	// 数组从0开始
+	// 调整行号
 	config.FieldLine--
 	config.TypeLine--
 	config.GroupLine--
 	config.DataLine--
 
-	// 创建输出路径
+	return nil
+}
+
+// 创建输出目录
+func createOutputDirs() error {
 	outList := []string{config.Txt, config.Lua, config.JSON, config.Bin, config.TSInterface}
 	for _, v := range outList {
 		if v != "" {
-			err = createDir(v)
-			if err != nil {
-				return
+			if err := createDir(v); err != nil {
+				return fmt.Errorf("create directory %s: %w", v, err)
 			}
 		}
 	}
-
-	// 遍历打印所有的文件名
-	if err := filepath.Walk(config.Root, walkFunc); err != nil {
-		log.Fatal(err)
-	}
-
-	wg.Wait()
-
-	writeFileList()
-
-	endTime := time.Now().UnixNano()
-	log.Infof("总耗时:%v毫秒\n", (endTime-startTime)/1000000)
-	time.Sleep(time.Second)
+	return nil
 }
 
 // 写文件列表
 func writeFileList() {
-	data := make(map[string]interface{})
-
-	sortList := make([]string, len(fileList))
-	for i, v := range fileList {
-		sortList[i] = v.(string)
+	data := map[string]interface{}{
+		"fileList": getFileList(),
 	}
-	sort.Strings(sortList)
-	data["fileList"] = sortList
 
 	if config.Txt != "" {
 		writeJSON(config.Txt, "fileList", &data)
@@ -291,9 +302,7 @@ func parseXlsx(path string, fileName string) {
 		writeTSInterface(config.TSInterface, sheetName, lines[config.TypeLine], fieldMap)
 	}
 
-	rwMutex.Lock()
-	fileList = append(fileList, sheetName)
-	rwMutex.Unlock()
+	addToFileList(sheetName)
 }
 
 func canAddData(group string) bool {
@@ -715,3 +724,20 @@ func compressData(inputData []byte) []byte {
 
 	return compressedBuffer.Bytes()
 }
+
+// 添加文件列表
+func addToFileList(name string) {
+	fileList.Store(name, true)
+}
+
+// 获取文件列表
+func getFileList() []string {
+	var result []string
+	fileList.Range(func(key, value interface{}) bool {
+		result = append(result, key.(string))
+		return true
+	})
+	sort.Strings(result)
+	return result
+}
+
